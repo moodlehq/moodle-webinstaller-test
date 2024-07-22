@@ -1,6 +1,12 @@
 name: Web Installer Testing
 description: Automated testing of the Moodle web installation
 inputs:
+  repository:
+    description: 'Repository to clone'
+    required: true
+  branch:
+    description: 'Branch to clone'
+    required: true
   php:
     description: 'PHP Version to test'
     required: true
@@ -19,6 +25,12 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Print repository and branch
+      shell: bash
+      run: |
+        echo "Repository: ${{ inputs.repository }}"
+        echo "Branch: ${{ inputs.branch }}"
+
     - name: Setting up DB PostgreSQL
       uses: m4nu56/postgresql-action@v1
       with:
@@ -50,10 +62,10 @@ runs:
     - name: Configuring git vars
       uses: rlespinasse/github-slug-action@v4
 
-    - name: Checking out code from ${{ env.GITHUB_REF_SLUG }}
-      uses: actions/checkout@v4
-      with:
-        path: moodle
+    - name: Clone specified repository and branch
+      run: |
+        git clone --depth 1 -b ${{ inputs.branch }} ${{ inputs.repository }} moodle
+      shell: bash
 
     - name: Clone Plugin repository
       uses: actions/checkout@v4
