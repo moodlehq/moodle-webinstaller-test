@@ -1,7 +1,9 @@
 const puppeteer = require('puppeteer');
 
 (async () => {
-    const browser = await puppeteer.launch();
+    const browser = await puppeteer.launch({
+        args: ['--no-sandbox'],
+    });
     const page = await browser.newPage();
     const moodleSiteUrl = process.env.MOODLE_SITE_URL || 'http://localhost:8080/moodle';
     const phpVersion = process.argv[2] || 'default';
