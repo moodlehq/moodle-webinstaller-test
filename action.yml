@@ -59,20 +59,15 @@ runs:
         ini-values: max_input_vars=5000
         coverage: none
 
-    - name: Configuring git vars
-      uses: rlespinasse/github-slug-action@v4
-
     - name: Clone specified repository and branch
       run: |
         git clone --depth 1 -b ${{ inputs.branch }} ${{ inputs.repository }} moodle
       shell: bash
 
     - name: Clone Plugin repository
-      uses: actions/checkout@v4
-      with:
-        repository: moodlehq/moodle-webinstaller-test
-        ref: main
-        path: webinstall
+      run: |
+        git clone --depth 1 https://github.com/${{ github.repository_owner }}/moodle-webinstaller-test.git webinstall
+      shell: bash
 
     - name: Install Plugin Composer Dependencies
       shell: bash
