@@ -19,7 +19,10 @@ jobs:
         os: [ubuntu-latest]
         php: [8.2, 8.3]
     steps:
-      - uses: moodlehq/moodle-webinstaller-test@main
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: ./
         with:
           repository: ${{ github.event.inputs.repository }}
           branch: ${{ github.event.inputs.branch }}
