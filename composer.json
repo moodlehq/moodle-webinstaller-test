@@ -3,7 +3,8 @@
     "description": "A project to automate test Moodle's web install",
     "require": {
         "php": "^7.4 || ^8.0",
-        "behat/behat": "3.13.*",
+        "behat/behat": "^3.13",
+   	"behat/gherkin": "^4.12",
         "behat/mink": "^1.10.0",
         "behat/mink-extension": "^2.6",
         "behat/mink-goutte-driver": "^2.0",
