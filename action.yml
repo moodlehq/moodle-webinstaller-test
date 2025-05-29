@@ -66,7 +66,7 @@ runs:
 
     - name: Clone Plugin repository
       run: |
-        git clone --depth 1 https://github.com/${{ github.repository_owner }}/moodle-webinstaller-test.git webinstall
+        git clone https://github.com/${{ github.repository_owner }}/moodle-webinstaller-test.git webinstall
       shell: bash
 
     - name: Install Plugin Composer Dependencies
