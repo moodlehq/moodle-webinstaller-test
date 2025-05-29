@@ -21,11 +21,7 @@ Feature: Web Installation testing
     And I fill in the database settings
     And I press "Next"
 
-    # Configuration completed: --> Only needed if Moodle could not save the config.php
-    # And I should see "Configuration completed"
-    # And I press "Next"
-
-    # Installation
+    # Installation (if config.php was writable)
     And I should see "Installation"
     And I should see "Modular Object-Oriented Dynamic Learning Environment"
     And I should see "Have you read these conditions and understood them?"
@@ -35,21 +31,21 @@ Feature: Web Installation testing
     And I should see "Server checks"
     And I press "Continue"
 
-    # All modules installation.
+    # All modules installation
     And I press "Continue"
 
-    # Admin user account.
+    # Admin user account
     And I should see "On this page you should configure your main administrator account"
     And I fill in "email" with "admin@moodle.com"
     And I fill in "newpassword" with "Web1nstall123!"
     And I press "Update profile"
 
-    # Site home settings.
+    # Site home settings
     And I fill in "s__fullname" with "site test"
     And I fill in "s__shortname" with "sitetest"
     And I fill in "s__supportemail" with "admin@moodle.com"
     And I fill in "s__noreplyaddress" with "admin@moodle.com"
     When I press "Save changes"
 
-    # Installation finished.
+    # Installation finished
     Then I should see "Welcome, admin!"
