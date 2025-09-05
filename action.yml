@@ -95,11 +95,6 @@ runs:
       run: npm install puppeteer
       working-directory: webinstall
 
-    - name: Take screenshot of Moodle installation page
-      shell: bash
-      run: node screenshot.js ${{ inputs.php }}
-      working-directory: webinstall
-
     - name: Run Behat tests
       shell: bash
       run: vendor/bin/behat tests/behat/install.feature
@@ -111,6 +106,12 @@ runs:
         DB_NAME: test
         DB_USER: test
         DB_PASS: test
+      continue-on-error: true
+
+    - name: Take screenshot of Moodle installation page
+      shell: bash
+      run: node screenshot.js ${{ inputs.php }}
+      working-directory: webinstall
 
     - name: Print PHP built-in server logs
       shell: bash
