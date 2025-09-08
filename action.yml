@@ -77,7 +77,7 @@ runs:
     - name: Start PHP built-in server
       shell: bash
       run: |
-        nohup php -S localhost:8080 -t . > server.log 2>&1 &
+        nohup php -S localhost:8080 -t ./public > server.log 2>&1 &
         echo "Waiting for PHP built-in server to be ready..."
         for i in {1..5}; do
           if nc -z localhost 8080; then
