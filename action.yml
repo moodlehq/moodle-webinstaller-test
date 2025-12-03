@@ -34,7 +34,7 @@ runs:
     - name: Setting up DB PostgreSQL
       uses: m4nu56/postgresql-action@v1
       with:
-        postgresql version: 15
+        postgresql version: 16
         postgresql db: test
         postgresql user: test
         postgresql password: test
