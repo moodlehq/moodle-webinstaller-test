@@ -12,11 +12,25 @@ on:
 
 jobs:
   InstallationTest:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        # Health check ensures the DB is ready before steps start
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
         php: [8.3, 8.4]
     steps:
       - name: Checkout repository
