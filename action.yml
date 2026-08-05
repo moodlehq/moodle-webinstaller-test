@@ -17,8 +17,9 @@ inputs:
 # expected and helps to detect any issues early.
 #
 # The workflow sets up a PostgreSQL database, PHP, clone moodle-webinstall repository and run the install Behat test.
-# It also takes a screenshot of the Moodle installation page and uploads it as an artifact so it can be verified in
-# case of failures.
+# On failure it collects everything needed to diagnose the problem (the response the browser received, the web
+# server log, a screenshot of the page the test stopped on and the Moodle revision under test) into a single
+# artifact, and summarises the failure on the run page.
 #
 # For more information about the web install testing, see https://github.com/moodlehq/moodle-webinstaller-test
 
@@ -40,7 +41,8 @@ runs:
 
     - name: Clone specified repository and branch
       run: |
-        git clone --depth 1 -b ${{ inputs.branch }} ${{ inputs.repository }} moodle
+        # Enough history to report what recently landed when the install breaks.
+        git clone --depth 50 -b ${{ inputs.branch }} ${{ inputs.repository }} moodle
       shell: bash
 
     - name: Clone Plugin repository
@@ -52,6 +54,26 @@ runs:
       shell: bash
       run: composer install
       working-directory: webinstall
+
+    - name: Record the Moodle revision under test
+      shell: bash
+      working-directory: moodle
+      run: |
+        mkdir -p "${GITHUB_WORKSPACE}/webinstall/artifacts"
+        versionfile=version.php
+        if [ -f public/version.php ]; then
+          versionfile=public/version.php
+        fi
+        {
+          echo "Repository: ${{ inputs.repository }}"
+          echo "Branch: ${{ inputs.branch }}"
+          echo "HEAD: $(git rev-parse HEAD)"
+          echo
+          grep -E '^\$(version|release|branch)' "${versionfile}" || true
+          echo
+          echo "Last 20 commits:"
+          git log --oneline -20
+        } | tee "${GITHUB_WORKSPACE}/webinstall/artifacts/moodle-revision.txt"
 
     - name: Start PHP built-in server
       shell: bash
@@ -81,7 +103,14 @@ runs:
 
     - name: Run Behat tests
       shell: bash
-      run: vendor/bin/behat tests/behat/install.feature
+      run: |
+        mkdir -p artifacts
+        set +e
+        vendor/bin/behat tests/behat/install.feature -vvv --strict 2>&1 | tee artifacts/behat-output.txt
+        exitcode=${PIPESTATUS[0]}
+        set -e
+        echo "${exitcode}" > artifacts/behat-exit-code.txt
+        exit "${exitcode}"
       working-directory: webinstall
       env:
         MOODLE_SITE_URL: http://localhost:8080/moodle
@@ -91,15 +120,62 @@ runs:
         DB_USER: test
         DB_PASS: test
 
+    - name: Take screenshot of the failing page
+      shell: bash
+      if: ${{ !cancelled() }}
+      run: |
+        if [ "$(cat artifacts/behat-exit-code.txt 2>/dev/null)" = "0" ]; then
+          echo "Behat passed, no failure screenshot needed."
+          exit 0
+        fi
+        node screenshot.js ${{ inputs.php }} failure
+      working-directory: webinstall
+      env:
+        MOODLE_SITE_URL: http://localhost:8080/moodle
+        SCREENSHOT_OPTIONAL: 1
+
     - name: Print PHP built-in server logs
       shell: bash
       if: ${{ !cancelled() }}
-      run: cat server.log
+      run: |
+        cat server.log
+        mkdir -p "${GITHUB_WORKSPACE}/webinstall/artifacts"
+        cp server.log "${GITHUB_WORKSPACE}/webinstall/artifacts/server.log"
       working-directory: moodle
 
-    - name: Upload screenshot
+    - name: Summarise the result
+      shell: bash
+      if: ${{ !cancelled() }}
+      run: |
+        exitcode=$(cat artifacts/behat-exit-code.txt 2>/dev/null || echo unknown)
+        {
+          if [ "${exitcode}" = "0" ]; then
+            echo "### :white_check_mark: Web installer test passed on PHP ${{ inputs.php }}"
+          else
+            echo "### :x: Web installer test failed on PHP ${{ inputs.php }} (Behat exit code ${exitcode})"
+          fi
+          echo
+          if [ -f artifacts/moodle-revision.txt ]; then
+            echo '```'
+            head -6 artifacts/moodle-revision.txt
+            echo '```'
+          fi
+          if [ "${exitcode}" != "0" ] && [ -f artifacts/behat-output.txt ]; then
+            echo '```'
+            # Strip the Behat formatter's gutter so the dump reads cleanly in the summary.
+            sed -n '/---- PAGE DUMP/,/---- END PAGE DUMP/p' artifacts/behat-output.txt \
+              | sed -e 's/^[[:space:]]*│[[:space:]]\{0,2\}//' | head -50
+            echo '```'
+            echo
+            echo "Full Behat output, response bodies, screenshots and the web server log are in the \`diagnostics-${{ inputs.php }}\` artifact."
+          fi
+        } >> "${GITHUB_STEP_SUMMARY}"
+      working-directory: webinstall
+
+    - name: Upload diagnostics
       if: ${{ !cancelled() }}
       uses: actions/upload-artifact@v4
       with:
-        name: screenshot-${{ inputs.php }}
-        path: webinstall/moodle${{ inputs.php }}.png
+        name: diagnostics-${{ inputs.php }}
+        path: webinstall/artifacts
+        if-no-files-found: warn
