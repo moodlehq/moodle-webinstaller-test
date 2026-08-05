@@ -16,9 +16,11 @@ inputs:
 # It's triggered manually (workflow_dispatch) and helps to ensure that the web installation process works as
 # expected and helps to detect any issues early.
 #
-# The workflow sets up a PostgreSQL database, PHP, clone moodle-webinstall repository and run the install Behat test.
-# It also takes a screenshot of the Moodle installation page and uploads it as an artifact so it can be verified in
-# case of failures.
+# The workflow sets up a PostgreSQL database and PHP, clones the Moodle branch under test and runs the install
+# Behat test from this action's own directory.
+# On failure it collects everything needed to diagnose the problem (the response the browser received, the web
+# server log, a screenshot of the page the test stopped on and the Moodle revision under test) into a single
+# artifact, and summarises the failure on the run page.
 #
 # For more information about the web install testing, see https://github.com/moodlehq/moodle-webinstaller-test
 
@@ -30,6 +32,7 @@ runs:
       run: |
         echo "Repository: ${{ inputs.repository }}"
         echo "Branch: ${{ inputs.branch }}"
+        echo "Test suite: ${{ github.action_path }}"
 
     - name: Setting up PHP
       uses: shivammathur/setup-php@v2
@@ -40,18 +43,39 @@ runs:
 
     - name: Clone specified repository and branch
       run: |
-        git clone --depth 1 -b ${{ inputs.branch }} ${{ inputs.repository }} moodle
+        # Enough history to report what recently landed when the install breaks.
+        git clone --depth 50 -b ${{ inputs.branch }} ${{ inputs.repository }} moodle
       shell: bash
 
-    - name: Clone Plugin repository
-      run: |
-        git clone https://github.com/${{ github.repository_owner }}/moodle-webinstaller-test.git webinstall
-      shell: bash
-
+    # The test suite is this action's own code, so it is used from the action directory rather than
+    # cloned. Cloning always fetched the default branch, so a change to the suite could never be
+    # tested by its own pull request.
     - name: Install Plugin Composer Dependencies
       shell: bash
       run: composer install
-      working-directory: webinstall
+      working-directory: ${{ github.action_path }}
+
+    - name: Record the Moodle revision under test
+      shell: bash
+      working-directory: moodle
+      run: |
+        mkdir -p "${ARTIFACT_DIR}"
+        versionfile=version.php
+        if [ -f public/version.php ]; then
+          versionfile=public/version.php
+        fi
+        {
+          echo "Repository: ${{ inputs.repository }}"
+          echo "Branch: ${{ inputs.branch }}"
+          echo "HEAD: $(git rev-parse HEAD)"
+          echo
+          grep -E '^\$(version|release|branch)' "${versionfile}" || true
+          echo
+          echo "Last 20 commits:"
+          git log --oneline -20
+        } | tee "${ARTIFACT_DIR}/moodle-revision.txt"
+      env:
+        ARTIFACT_DIR: ${{ github.workspace }}/artifacts
 
     - name: Start PHP built-in server
       shell: bash
@@ -72,18 +96,33 @@ runs:
     - name: Install Puppeteer
       shell: bash
       run: npm install puppeteer
-      working-directory: webinstall
+      working-directory: ${{ github.action_path }}
 
     - name: Take screenshot of Moodle installation page
       shell: bash
       run: node screenshot.js ${{ inputs.php }}
-      working-directory: webinstall
+      working-directory: ${{ github.action_path }}
+      env:
+        ARTIFACT_DIR: ${{ github.workspace }}/artifacts
+        MOODLE_SITE_URL: http://localhost:8080/moodle
 
     - name: Run Behat tests
       shell: bash
-      run: vendor/bin/behat tests/behat/install.feature
-      working-directory: webinstall
+      run: |
+        mkdir -p "${ARTIFACT_DIR}"
+        set +e
+        vendor/bin/behat tests/behat/install.feature -vvv --strict 2>&1 \
+          | tee "${ARTIFACT_DIR}/behat-output.txt"
+        exitcode=${PIPESTATUS[0]}
+        set -e
+        # Recorded outside the artifacts directory: the later steps need to know whether Behat
+        # failed (composite action steps cannot use continue-on-error), but this is not diagnostic
+        # material worth uploading.
+        echo "${exitcode}" > "${RUNNER_TEMP}/behat-exit-code"
+        exit "${exitcode}"
+      working-directory: ${{ github.action_path }}
       env:
+        ARTIFACT_DIR: ${{ github.workspace }}/artifacts
         MOODLE_SITE_URL: http://localhost:8080/moodle
         DB_TYPE: pgsql
         DB_HOST: localhost
@@ -91,15 +130,66 @@ runs:
         DB_USER: test
         DB_PASS: test
 
+    - name: Take screenshot of the failing page
+      shell: bash
+      if: ${{ !cancelled() }}
+      run: |
+        if [ "$(cat "${RUNNER_TEMP}/behat-exit-code" 2>/dev/null)" = "0" ]; then
+          echo "Behat passed, no failure screenshot needed."
+          exit 0
+        fi
+        node screenshot.js ${{ inputs.php }} failure
+      working-directory: ${{ github.action_path }}
+      env:
+        ARTIFACT_DIR: ${{ github.workspace }}/artifacts
+        MOODLE_SITE_URL: http://localhost:8080/moodle
+        SCREENSHOT_OPTIONAL: 1
+
     - name: Print PHP built-in server logs
       shell: bash
       if: ${{ !cancelled() }}
-      run: cat server.log
+      run: |
+        cat server.log
+        mkdir -p "${ARTIFACT_DIR}"
+        cp server.log "${ARTIFACT_DIR}/server.log"
       working-directory: moodle
+      env:
+        ARTIFACT_DIR: ${{ github.workspace }}/artifacts
 
-    - name: Upload screenshot
+    - name: Summarise the result
+      shell: bash
       if: ${{ !cancelled() }}
-      uses: actions/upload-artifact@v4
+      run: |
+        exitcode=$(cat "${RUNNER_TEMP}/behat-exit-code" 2>/dev/null || echo unknown)
+        {
+          if [ "${exitcode}" = "0" ]; then
+            echo "### :white_check_mark: Web installer test passed on PHP ${{ inputs.php }}"
+          else
+            echo "### :x: Web installer test failed on PHP ${{ inputs.php }} (Behat exit code ${exitcode})"
+          fi
+          echo
+          if [ -f "${ARTIFACT_DIR}/moodle-revision.txt" ]; then
+            echo '```'
+            head -6 "${ARTIFACT_DIR}/moodle-revision.txt"
+            echo '```'
+          fi
+          if [ "${exitcode}" != "0" ] && [ -f "${ARTIFACT_DIR}/behat-output.txt" ]; then
+            echo '```'
+            # Strip the Behat formatter's gutter so the dump reads cleanly in the summary.
+            sed -n '/---- PAGE DUMP/,/---- END PAGE DUMP/p' "${ARTIFACT_DIR}/behat-output.txt" \
+              | sed -e 's/^[[:space:]]*│[[:space:]]\{0,2\}//' | head -50
+            echo '```'
+            echo
+            echo "Full Behat output, response bodies, screenshots and the web server log are in the \`diagnostics-${{ inputs.php }}\` artifact."
+          fi
+        } >> "${GITHUB_STEP_SUMMARY}"
+      env:
+        ARTIFACT_DIR: ${{ github.workspace }}/artifacts
+
+    - name: Upload diagnostics
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v6
       with:
-        name: screenshot-${{ inputs.php }}
-        path: webinstall/moodle${{ inputs.php }}.png
+        name: diagnostics-${{ inputs.php }}
+        path: artifacts
+        if-no-files-found: warn

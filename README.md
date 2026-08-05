@@ -36,6 +36,30 @@ sudo chown -R www-data:www-data /path/to/moodle
 /vendor/bin/behat
 ```
 
+## Diagnosing a failure
+Whenever a step fails, the response the browser received is written to the `artifacts` directory and
+summarised on stdout, so the reason for the failure is visible without reproducing it:
+
+```
+---- PAGE DUMP (step failed) ----
+Step: And I press "Next" (install.feature:22)
+URL: http://localhost:8080/admin/index.php?lang=en
+HTTP status: 500
+Response saved to: artifacts/failure-01-line22.html
+---- PAGE TEXT (first 40 lines) ----
+Error
+Exception - Interface "League\OAuth2\Server\Repositories\ScopeRepositoryInterface" not found
+---- END PAGE DUMP ----
+```
+
+A step that returned an HTTP error status fails at that point rather than at a later assertion, so the
+failure is reported against the request that caused it.
+
+In GitHub Actions the same information is summarised on the run page, and the `diagnostics-<php>`
+artifact holds the full Behat output, the saved responses, the screenshots, the web server log and the
+Moodle revision under test (HEAD, version and the last 20 commits, which is usually enough to identify
+what broke it).
+
 ## Troubleshooting
 The test execution usually takes around 54 seconds to complete, the common issues that might prevent the tests from passing are:
 - The database connection details are incorrect.
