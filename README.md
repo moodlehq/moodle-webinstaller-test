@@ -10,7 +10,7 @@ This repository contains the testing suite for the Moodle web installation proce
 ## Getting Started
 ```bash
 # Get Moodle code, you could select another version branch (skip this if you already got the code)
-git clone -b main git://git.moodle.org/moodle.git moodle
+git clone -b main https://github.com/moodle/moodle.git moodle
 
 # Clone the web install repository.
 git git@github.com:moodlehq/moodle-webinstaller-test.git
